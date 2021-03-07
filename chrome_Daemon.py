@@ -17,15 +17,15 @@ import threading
 import json
 
 class MyChromeDaemon(object):
-    root_url = "https://news.baidu.com"
+    root_url = "http://www.baidu.com"
     # user_data_path = "E:\\workspace\\movie_center_ui\\cache\\chromium_cache_80\\user-data"
     # disk_cache_path = "E:\\workspace\\movie_center_ui\\cache\\chromium_cache_80\\disk-cache"
     # chrome_exe_path = "E:\\workspace\\movie_center_ui\\chrome-win-80\\chrome.exe"
     # chrome_driver_path = "E:\\workspace\\movie_center_ui\\selenium_scraper\\chromedriver_800397.exe"
-    user_data_path = "./cache/chromium_cache/user_data"
-    disk_cache_path = "./cache/chromium_cache/disk_cache"
-    chrome_exe_path = "./chrome_win_80/chrome.exe"
-    chrome_driver_path = "./chrome_win_80/chromedriver_800397.exe"
+    user_data_path = os.path.abspath("./cache/chromium_cache/user_data")  # 传入abs路径后，才不会和 headless flag 冲突
+    disk_cache_path = os.path.abspath("./cache/chromium_cache/disk_cache")
+    chrome_exe_path = os.path.abspath("./chrome_win_80/chrome.exe")
+    chrome_driver_path = os.path.abspath("./chrome_win_80/chromedriver_800397.exe")
     proxy_server_address = "http://localhost:1080"
     chrome_debug_address = "127.0.0.1"
     chrome_debug_port = 9222
@@ -40,12 +40,12 @@ class MyChromeDaemon(object):
 
     def init(self):
         chrome_options=Options()
-        # chrome_options.add_argument("--headless") #设置chrome浏览器无界面模式
+        chrome_options.add_argument("--headless") #设置chrome浏览器无界面模式
         # chrome_options.add_argument(f"proxy-server={self.proxy_server_address}")
         chrome_options.binary_location = self.chrome_exe_path
         chrome_options.add_argument(f"user-data-dir={self.user_data_path}")
         chrome_options.add_argument(f"disk-cache-dir={self.disk_cache_path}")
-        chrome_options.add_argument("window-size=1000,1000")
+        # chrome_options.add_argument("window-size=1000,1000")
         chrome_options.add_argument("--disable-web-security")
         chrome_options.add_argument(f"--remote-debugging-address={self.chrome_debug_address}")
         chrome_options.add_argument(f"--remote-debugging-port={self.chrome_debug_port}")
@@ -53,9 +53,11 @@ class MyChromeDaemon(object):
         #建立浏览器实例
         browser = webdriver.Chrome(options=chrome_options, executable_path=self.chrome_driver_path)
         self.browser = browser
+        print("2?")
         browser.set_script_timeout(120)
         # 开始请求
-        # browser.get(self.root_url)
+        browser.get(self.root_url)
+        print("??")
 
     def start_thread(self):
         def body():
@@ -122,8 +124,20 @@ class MyChromeDaemon(object):
         f.close()
 
 
+def headlessTest():
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument(f"--user-data-dir=E:\\workspace\\netease-cached-music\\cache\\chromium_cache\\user_data3")
+    options.binary_location = "./chrome_win_80/chrome.exe"
+    driver = webdriver.Chrome(options=options, executable_path= "./chrome_win_80/chromedriver_800397.exe")
+    driver.get("https://www.baidu.com")
+    print(driver.page_source)
+    driver.quit()
+
+
 # movie_insert_update(db, browser)
-if __name__ == "__main__":
+def main():
     daemon = MyChromeDaemon()
     daemon.listen_ready.acquire() # 等待 监听线程开始运行
     #
@@ -153,3 +167,5 @@ def threadTest2():
     print('...')
 
 
+if __name__ == "__main__":
+    headlessTest()
