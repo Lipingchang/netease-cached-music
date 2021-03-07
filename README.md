@@ -24,13 +24,29 @@
 
 脚本会监听文件夹变动，和网易云客户端一起开启后，客户端缓存一个脚本就转存一个
 
+### 另外下载的chrome和chromedriver
+[下载有h264支持的chromium](https://github.com/Hibbiki/chromium-win64)
 
+[下载和chromium版本对应的webdriver](https://chromedriver.chromium.org/downloads)
+
+要这么放：
+![](readme/chromium_driver.png)
+
+打包好的里面加了这两个东西
 
 ### 运行
-* 在命令行模式下
+* 环境搭好，在命令行模式下
   `python3 decrypt.py`
 
+* 使用打包好的
 
+  先修改 `decrypt.config`
+
+  > srcDir：网易云的缓存文件夹
+  >
+  > desDir：输出
+
+  再运行 `decrypt.exe`
 
 ## 展示
 监听文件变动和下载，因为网易云的缓存策略所以 监听到要下载的歌总是慢客户端一步
