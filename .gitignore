@@ -5,3 +5,7 @@ cached_网易云音乐/
 dst/
 .idea/
 __pycache__/
+build/
+dist/
+chrome_win_80/
+decrypt.spec

@@ -18,10 +18,6 @@ import json
 
 class MyChromeDaemon(object):
     root_url = "http://www.baidu.com"
-    # user_data_path = "E:\\workspace\\movie_center_ui\\cache\\chromium_cache_80\\user-data"
-    # disk_cache_path = "E:\\workspace\\movie_center_ui\\cache\\chromium_cache_80\\disk-cache"
-    # chrome_exe_path = "E:\\workspace\\movie_center_ui\\chrome-win-80\\chrome.exe"
-    # chrome_driver_path = "E:\\workspace\\movie_center_ui\\selenium_scraper\\chromedriver_800397.exe"
     user_data_path = os.path.abspath("./cache/chromium_cache/user_data")  # 传入abs路径后，才不会和 headless flag 冲突
     disk_cache_path = os.path.abspath("./cache/chromium_cache/disk_cache")
     chrome_exe_path = os.path.abspath("./chrome_win_80/chrome.exe")
@@ -40,7 +36,8 @@ class MyChromeDaemon(object):
 
     def init(self):
         chrome_options=Options()
-        chrome_options.add_argument("--headless") #设置chrome浏览器无界面模式
+        chrome_options.add_argument("--headless") #设置chrome浏览器无界面模式  无头模式会又命令行输出
+        chrome_options.add_argument("log-level=3") # 防止打包后 无头模式的chrome输出console中的内容
         # chrome_options.add_argument(f"proxy-server={self.proxy_server_address}")
         chrome_options.binary_location = self.chrome_exe_path
         chrome_options.add_argument(f"user-data-dir={self.user_data_path}")
@@ -53,11 +50,9 @@ class MyChromeDaemon(object):
         #建立浏览器实例
         browser = webdriver.Chrome(options=chrome_options, executable_path=self.chrome_driver_path)
         self.browser = browser
-        print("2?")
         browser.set_script_timeout(120)
         # 开始请求
-        browser.get(self.root_url)
-        print("??")
+        # browser.get(self.root_url)
 
     def start_thread(self):
         def body():

@@ -10,7 +10,9 @@ from eyed3.id3.tag import  Tag, ImagesAccessor, LyricsAccessor
 from eyed3.id3.frames import ImageFrame
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent, LoggingEventHandler
+from selenium.webdriver.remote.remote_connection import LOGGER as seleniumLogger
 import logging
+from configparser import ConfigParser
 
 from chrome_Daemon import MyChromeDaemon
 
@@ -194,16 +196,23 @@ class Netease_music:
 
 
 if __name__ == '__main__':
+    config = ConfigParser()
+    config.read('./decrypt.config')
+    srcDir = config["global"]["srcDir"]
+    desDir = config["global"]["desDir"]
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s - %(message)s',
                         datefmt='%H:%M:%S')
+    seleniumLogger.setLevel(logging.WARNING)
+    logging = logging.getLogger("NeteaseDecrypt")
     daemon = MyChromeDaemon()
     daemon.listen_ready.acquire()  # 等待 监听线程开始运行
     # daemon.browser.get("https://music.163.com/")
 
     # handler = Netease_music("E:/workspace/netease-cached-music/cache/", "E:/workspace/netease-cached-music/dst/")
-    handler = Netease_music("C:\\Users\\DogEgg\\AppData\\Local\\Netease\\CloudMusic\\Cache\\Cache",
-                            "E:/workspace/netease-cached-music/dst/")
+    # handler = Netease_music("C:\\Users\\DogEgg\\AppData\\Local\\Netease\\CloudMusic\\Cache\\Cache",
+    #                         "E:/workspace/netease-cached-music/dst/")
+    handler = Netease_music(srcDir, desDir)
     handler.start_dir_watch()
     # handler.getMusic()
     # print(handler.getInfoFromWeb("65528"))
