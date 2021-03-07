@@ -1,0 +1,7 @@
+# Created by .ignore support plugin (hsz.mobi)
+venv/
+cache/
+cached_网易云音乐/
+dst/
+.idea/
+__pycache__/

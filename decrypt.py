@@ -1,102 +1,107 @@
 #coding : utf-8
+import time
 import os
+import re
+import shutil
 import sys
 import glob
-import requests
+import eyed3
+from eyed3.id3.tag import  Tag, ImagesAccessor, LyricsAccessor
+from eyed3.id3.frames import ImageFrame
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler, FileSystemEvent, LoggingEventHandler
+import logging
 
-DESDIR = '../cached_网易云音乐'
-LRCDIR = os.path.join(DESDIR, 'lyric')
-MSCDIR = os.path.join(DESDIR, 'music')
-
-API = 'https://api.imjad.cn/cloudmusic/?'
-# two args: id  type
-# type=song, lyric, comments, detail, artist, album, search
-# eg  API = 'https://api.imjad.cn/cloudmusic/?type=song&id=1234132'    download music
-
-hasModu = False
-try:
-    from mutagen.easyid3 import EasyID3
-    from mutagen.mp3 import MP3
-    hasModu = True
-except:
-    pass
+from chrome_Daemon import MyChromeDaemon
 
 
-class netease_music:
-    def __init__(self, path=''):
-        '''path is the direcoty that contains Music files(cached)'''
-        if path == '':
-            path = input('input the path of cached netease_music')
-        self.path = path
-        print('[+] Current Path: ' + path)
-        os.chdir(path)
-        self.files = glob.glob('*.uc') + glob.glob('*.uc!')
-        self.id_mp = {}
-        for i in self.files:
-            self.id_mp[self.getId(i)] = i
-        if not os.path.exists(DESDIR):
-            os.mkdir(DESDIR)
-        if not os.path.exists(LRCDIR):
-            os.mkdir(LRCDIR)
-        if not os.path.exists(MSCDIR):
-            os.mkdir(MSCDIR)
-        # import re
-        # self.nameXpath ='//div[@class="tit"]/em[@class="f-ff2"]/text()'
-        # self.lrcSentencePt=re.compile(r'\[\d+:\d+\.\d+\](.*?)\\n')         # wrong  (r'\[\d+,\d+\](\(\d+,\d+\)(\w))+\n')
+class Netease_music:
+    def __init__(self, src_dir='', des_dir=''):
+        ''' src_dir 保存着被网易云缓存的音乐文件（需要解密）
+            des_dir 保存解密后的音乐文件 （带封面 歌词 歌手信息）
+        '''
 
-    def getId(self, name):
-        return name[:name.find('-')]
+        # 初始化工作文件夹
+        self.src_dir = src_dir
+        self.des_dir = des_dir
+        self.lrc_dir = os.path.join(des_dir, 'lyric') # 缓存下载的歌词文件
+        self.cover_dir = os.path.join(des_dir, 'cover') # 缓存歌词封面
+        self.msc_dir = os.path.join(des_dir, 'msc')   # 缓存解密的音乐文件
+        self.ready_msc_dir = os.path.join(des_dir,'readyMusic')  # 处理完毕的音乐文件
+        self.ready_msc_list_file = os.path.join(self.ready_msc_dir,".list.txt")
+        logging.info("Current src_dir: %s", src_dir)
+        logging.info("Current des_dir: %s", des_dir)
+
+        # 新建目标文件夹
+        if not os.path.exists(des_dir):
+            os.mkdir(des_dir)
+        if not os.path.exists(self.lrc_dir):
+            os.mkdir(self.lrc_dir)
+        if not os.path.exists(self.msc_dir):
+            os.mkdir(self.msc_dir)
+        if not os.path.exists(self.cover_dir):
+            os.mkdir(self.cover_dir)
+        if not os.path.exists(self.ready_msc_dir):
+            os.mkdir(self.ready_msc_dir)
+
+        # 找出要转换的加密文件
+        os.chdir(src_dir)
+        self.uc_files = glob.glob('*.uc') #+ glob.glob('*.uc!') # 找出符合文件名的文件
+        self.id_uc_mp = {} # 文件名字和id对应表
+        for i in self.uc_files:
+            self.id_uc_mp[self.getSongId(i)] = i
+
+    # 从缓存文件名中提取出歌曲的id
+    # 缓存文件名字 结构： 156828-128-4e5e8487039537d52d70e2e37ce85682.idx/info/uc
+    # uc 音频文件
+    # info 格式 音量
+    # idx 文件大小 文件已经下载的区间？
+    def getSongId(self, name):
+        id = name[:name.find('-')]
+        logging.debug("getSongId: %s", id)
+        return id
 
     def getInfoFromWeb(self, musicId):
-        dic = {}
-        url = API+'type=detail&id=' + musicId
-        info = requests.get(url).json()['songs'][0]
-        dic['artist'] = [info['ar'][0]['name']]
-        dic['title'] = [info['name']]
-        dic['cover'] = [info['al']['picUrl']]
-        return dic
+        daemon.browser.get("https://music.163.com/#/song?id=%s" % musicId)
+        daemon.browser.switch_to.frame("contentFrame")
 
-    def getInfoFromFile(self, path):
-        if not os.path.exists(path):
-            print('Can not find file ' + path)
-            return {}
-        elif hasModu:
-            return dict(MP3(path, ID3=EasyID3))
+        img = daemon.browser.find_element_by_xpath('//body/div[3]/div[1]/div/div/div[1]/div[1]/div[1]/div[1]/img')
+        title = daemon.browser.find_element_by_xpath('//body/div[3]/div[1]/div/div/div[1]/div[1]/div[2]/div[1]/div/em')
+        artist = daemon.browser.find_elements_by_xpath('//body/div[3]/div[1]/div/div/div[1]/div[1]/div[2]/p[1]/span/a')
+        album = None
+        try:
+            album = daemon.browser.find_element_by_xpath('//body/div[3]/div[1]/div/div/div[1]/div[1]/div[2]/p[2]/a')
+        except:
+            pass
+
+        imgUrl = img.get_attribute("data-src")
+        titleStr = title.get_attribute("innerHTML")
+        artistStr = [x.get_attribute("innerHTML") for x in artist]
+        artistStr = " / ".join(artistStr)
+        if album is None:
+            albumStr = ""
         else:
-            print('[Error] You can use pip3 to install mutagen or connet to the Internet')
-            raise Exception('Failed to get info of ' + path)
+            albumStr = album.get_attribute("innerHTML")
+        lyricStr = daemon.lyric_queue.get(True)
+        return [
+            imgUrl,
+            titleStr,
+            artistStr,
+            albumStr,
+            lyricStr,
+        ]
 
-    def getPath(self, dic,musicId):
-        title = dic['title'][0]
-        artist = dic['artist'][0]
-        if artist in title:
-            title = title.replace(artist, '').strip()
-        name = (title + '--' + artist).replace(':','-') # if name contains :, it will be wrong in wondows
-        self.id_mp[musicId] = name
-        #print('''{{title: "{title}",artist: "{artist}",mp3: "http://ounix1xcw.bkt.clouddn.com/{name}.mp3",cover: "{cover}",}},'''\
-               #.format(title = title,name = name,artist=artist,cover=dic['cover'][0]))
-        return os.path.join(MSCDIR, name + '.mp3')
-    
-    def decrypt(self, cachePath):
-        musicId = self.getId(cachePath)
-        idpath = os.path.join(MSCDIR, musicId + '.mp3')
+    def decrypt(self, musicId):
+        cachePath = os.path.join(self.src_dir, self.id_uc_mp.get(musicId))
+        mscFilePath = os.path.join(self.msc_dir,musicId+'.mp3')
         try:  # from web
-            dic = self.getInfoFromWeb(musicId)
-            path = self.getPath(dic,musicId)
-            if os.path.exists(path): return 
-            with open(path,'wb') as f:
+            with open(mscFilePath,'wb') as f:
                 f.write(bytes(self._decrypt(cachePath)))
         except Exception as e:  # from file
-            print(e)
-            if not os.path.exists(idpath):
-                with open(idpath,'wb') as f:
-                    f.write(bytes(self._decrypt(cachePath)))
-            dic = self.getInfoFromFile(idpath)
-            path = getPath(dic,musicId)
-            if os.path.exists(path):
-                os.remove(idpath)
-                return 
-            os.rename(idpath, path)
+            logging.error("musicId: %s file decrypt fail: %s", musicId, e)
+            return None
+        logging.debug("musicId: %s file decrypt to %s", musicId, mscFilePath)
+        return mscFilePath
             
     def _decrypt(self,cachePath):
         with open(cachePath, 'rb') as f:
@@ -104,33 +109,101 @@ class netease_music:
         for i, j in enumerate(btay):
             btay[i] = j ^ 0xa3
         return btay
-    
-    def getLyric(self, musicId):
-        name = self.id_mp[musicId]
-        # 'http://music.163.com/api/song/lyric?id='
-        url = API + 'type=lyric&id=' + musicId
+
+    def getAllMusic(self):
+        with open(self.ready_msc_list_file, "a+") as file: # 打开记录已经 查找过的歌曲记录 的文件
+            file.seek(0)
+            alreadyIds = file.readlines() # 读取所有的id
+            for _i, musicId in enumerate(self.id_uc_mp):
+                logging.info("doing: %s", musicId)
+                if musicId+"\n" in alreadyIds: # 已经记录过的
+                    continue
+                path = self.getMusic(musicId)
+                if path is None:
+                    continue;
+                else:
+                    file.write("%s\n"%musicId)
+                    alreadyIds.append("%s\n"%musicId)
+            # self._getAllMusic(ids, file)
+
+    def getMusic(self, musicId):
+        logging.info("开始转存 %s 歌曲", musicId)
+        # 破解id对应文件名字的 文件 返回 结果文件路径
+        mscFilePath = self.decrypt(musicId) # 把异或后的文件保存到msc文件夹中, 然后开始找tab信息
+        logging.info("歌曲 转换成功")
         try:
-            lrc = requests.get(url).json()['lrc']['lyric']
-            if lrc=='':
-                raise Exception('')
-            file = os.path.join(LRCDIR, name + '.lrc')
-            if not os.path.exists(file):
-                with open(file, 'w', encoding='utf8') as f:
-                    f.write(str(lrc))
+            info = self.getInfoFromWeb(musicId)
         except Exception as e:
-            print(e,' Failed to get lyric of music '+name)
-    def getMusic(self):
-        for ct, cachePath in enumerate(self.files):
-            self.decrypt(cachePath)
-            musicId = self.getId(cachePath)
-            print('[{}]'.format(ct+1).ljust(5)+self.id_mp[musicId])
-            self.getLyric(musicId)
+            logging.info("歌曲 %s web加载失败: %s", musicId, e)
+            e.with_traceback()
+            return None;
+        logging.info("歌曲 web 资料获取成功")
+        # print(info)
+        mscFile = eyed3.load(mscFilePath)
+        mscFile.tag: Tag;
+        mscFile.tag.images: ImagesAccessor
+        mscFile.tag.lyrics: LyricsAccessor
+
+        picPath = os.path.join(self.cover_dir, musicId + ".jpg")
+        daemon.download_pic(info[0] + "?param=500y500", picPath)  # 下载图片
+        imageLoad = open(picPath, "rb").read()
+        mscFile.tag.images.set(ImageFrame.FRONT_COVER, imageLoad, "image/jpeg", u"cover_description")
+        # imageLoad = open(r"C:\Users\DogEgg\Pictures\Saved Pictures\back_cover.jpg", "rb").read() # 可以放多个图片，iTunes只识别第一张，foobar2000识别多个type的图片 所有的软件对歌手的头像都是联网下载的 不会看tag里面的图片集
+        # mscFile.tag.images.set(ImageFrame.LEAD_ARTIST, imageLoad, "image/jpeg", u"artist")
+        # mscFile.tag.images.set(ImageFrame.ARTIST, imageLoad, "image/jpeg", u"artist")
+        mscFile.tag.lyrics.set(info[4])
+        mscFile.tag.album = info[3]
+        mscFile.tag.artist = info[2]
+        mscFile.tag.title = info[1]
+        mscFile.tag.user_text_frames.set("netease_url", musicId)
+        mscFile.tag.save(encoding="utf8")
+
+        mscFileDstPath = os.path.join(self.ready_msc_dir,
+                                              "%s - %s.mp3" % (re.sub(r"[\/\\\:\*\?\"\<\>\|]", "", info[1]), musicId))
+        shutil.move(mscFilePath, mscFileDstPath)
+        logging.info("歌曲保存至指定目录成功")
+        return mscFileDstPath
+
+    def start_dir_watch(self):
+        # TODO 没有把触发事件的文件加入 记录文件中
+        logging.info("start dir watch")
+        observer = Observer()
+        event_handler = self.FileModifyHandler(self)
+        # event_handler = LoggingEventHandler()
+        observer.schedule(event_handler, self.src_dir, recursive=False)
+        observer.start()
+
+    class FileModifyHandler(FileSystemEventHandler):
+        def __init__(self, context):
+            super().__init__()
+            self.lastModifyFile = None;
+            self.context = context
+
+        def on_modified(self, event: FileSystemEvent):
+            if not os.path.basename(event.src_path).endswith("uc"):
+                # 只监视uc文件
+                return;
+            if event.src_path == self.lastModifyFile:
+                basename = os.path.basename(event.src_path)
+                logging.info("Netease cache file: %s", basename)
+                # 此文件修改了两次 说明缓存好了
+                songId = self.context.getSongId(basename)
+                self.context.id_uc_mp[songId] = event.src_path
+                self.context.getMusic(songId)
+            self.lastModifyFile = event.src_path
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        path = sys.argv[1].strip()
-    else:
-        path = os.path.join(os.getcwd(), 'Music1')
-    handler = netease_music(path)
-    handler.getMusic()
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s - %(message)s',
+                        datefmt='%H:%M:%S')
+    daemon = MyChromeDaemon()
+    daemon.listen_ready.acquire()  # 等待 监听线程开始运行
+    # daemon.browser.get("https://music.163.com/")
+
+    # handler = Netease_music("E:/workspace/netease-cached-music/cache/", "E:/workspace/netease-cached-music/dst/")
+    handler = Netease_music("C:\\Users\\DogEgg\\AppData\\Local\\Netease\\CloudMusic\\Cache\\Cache",
+                            "E:/workspace/netease-cached-music/dst/")
+    handler.start_dir_watch()
+    # handler.getMusic()
+    # print(handler.getInfoFromWeb("65528"))
