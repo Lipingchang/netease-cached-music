@@ -6,25 +6,27 @@
 
 ## 介绍
 
-这是一个用于获取网易云音乐缓存文件的mp3文件的 python script.
-
+1. 这是一个用于获取网易云音乐缓存文件的mp3文件的 python script. 
+   
 利用缓存文件,解密（异或163的hex）得到MP3文件, 并通过其metadata,命名文件,
 ~~顺便从api或者网页抓取歌词,详细介绍可以看[这里](https://mbinary.coding.me/decrypt-netease-music.html)~~
 
-改成了从music.163.com获取歌曲的封面/歌词/元数据
+2. 使用selenium爬取 music.163.com 获取歌曲的封面/歌词/元数据，再修改解密后的mp3文件的tag，把元数据放进去。
 
 
 
 ## 使用
 
-### 获得缓存文件
->  手机上的在 `netease/cloudmusic/Cache/Music1`里,将其复制到电脑上。
->
->  windows：用户文件夹 AppData/Local/Netease/CloudMusic/Cache/Cache 里面。`
+### 获得缓存文件路径
 
-脚本会监听文件夹变动，和网易云客户端一起开启后，客户端缓存一个脚本就转存一个
+>  windows：用户文件夹下：AppData/Local/Netease/CloudMusic/Cache/Cache 里面。
+> 
+> 或者打开 网银云音乐 软件，在软件的**设置**里面可以找到 缓存目录。
 
-### 另外下载的chrome和chromedriver
+
+*脚本*会监听文件夹变动，当*网易云客户端*一起开启后，*网易云客户端*缓存一个脚本就转存一个
+
+### 运行selenium需要 另外下载：chrome和chromedriver
 [下载有h264支持的chromium](https://github.com/Hibbiki/chromium-win64)
 
 [下载和chromium版本对应的webdriver](https://chromedriver.chromium.org/downloads)
@@ -32,7 +34,7 @@
 要这么放：
 ![](readme/chromium_driver.png)
 
-打包好的里面加了这两个东西
+### 但是 Release中 已经把chrome打包进去了！
 
 ### 运行
 * 环境搭好，在命令行模式下
@@ -44,9 +46,11 @@
 
   > srcDir：网易云的缓存文件夹
   >
-  > desDir：输出
+  > desDir：存放 输出的mp3文件
 
   再运行 `decrypt.exe`
+### 打包
+`pyinstaller -F decrypt.py`
 
 ## 展示
 监听文件变动和下载，因为网易云的缓存策略所以 监听到要下载的歌总是慢客户端一步
