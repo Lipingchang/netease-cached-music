@@ -158,7 +158,8 @@ class Netease_music:
         mscFile.tag.artist = info[2]
         mscFile.tag.title = info[1]
         mscFile.tag.user_text_frames.set("netease_url", musicId)
-        mscFile.tag.save(encoding="utf8")
+        # windows 自带的播放器 Groove音乐 只支持 id3v2.3 格式的, 之前没有指定version 有些文件被保存为 v2.4的，在windows文件夹的预览中，就看不到封面图片了
+        mscFile.tag.save(encoding="utf8", version=(2, 3, 0))
 
         mscFileDstPath = os.path.join(self.ready_msc_dir,
                                               "%s - %s.mp3" % (re.sub(r"[\/\\\:\*\?\"\<\>\|]", "", info[1]), musicId))
