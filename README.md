@@ -49,8 +49,11 @@
   > desDir：存放 输出的mp3文件
 
   再运行 `decrypt.exe`
-### 打包
+### 打包 / 开发
 `pyinstaller -F decrypt.py`
+`conda create -n py397 python=3.9.7`
+`conda activate py397`
+`pip install --no-index --find-links=.\wls -r .\requirements.txt`
 
 ## 展示
 监听文件变动和下载，因为网易云的缓存策略所以 监听到要下载的歌总是慢客户端一步

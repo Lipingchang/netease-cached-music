@@ -12,6 +12,8 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent, LoggingEventHandler
 from selenium.webdriver.remote.remote_connection import LOGGER as seleniumLogger
 import logging
+import filetype
+from mutagen.mp4 import MP4
 from configparser import ConfigParser
 
 from chrome_Daemon import MyChromeDaemon
@@ -84,13 +86,13 @@ class Netease_music:
             albumStr = ""
         else:
             albumStr = album.get_attribute("innerHTML")
-        lyricStr = daemon.lyric_queue.get(True)
+        # lyricStr = daemon.lyric_queue.get(True)
         return [
             imgUrl,
             titleStr,
             artistStr,
             albumStr,
-            lyricStr,
+            # lyricStr,
         ]
 
     def decrypt(self, musicId):
@@ -120,13 +122,64 @@ class Netease_music:
                 logging.info("doing: %s", musicId)
                 if musicId+"\n" in alreadyIds: # 已经记录过的
                     continue
-                path = self.getMusic(musicId)
+                path = self.getMusic_only_text(musicId)
                 if path is None:
                     continue;
                 else:
                     file.write("%s\n"%musicId)
                     alreadyIds.append("%s\n"%musicId)
             # self._getAllMusic(ids, file)
+
+    # 只向音乐文件中添加 作者等信息 不添加图片节省存储空间
+    def getMusic_only_text(self, musicId):
+        logging.info("===================================")
+        logging.info("开始转存 %s 歌曲", musicId)
+        # 破解id对应文件名字的 文件 返回 结果文件路径
+        mscFilePath = self.decrypt(musicId) # 把异或后的文件保存到msc文件夹中, 然后开始找tab信息
+        logging.info("歌曲 转换成功")
+        try:
+            info = self.getInfoFromWeb(musicId)
+        except Exception as e:
+            logging.error("歌曲 %s web加载失败: %s", musicId, e)
+            e.with_traceback()
+            return None;
+        logging.info("歌曲 web 资料获取成功")
+        logging.info(f"对文件添加元数据：{mscFilePath}")
+
+        # 识别音频文件格式
+        mscFileType = filetype.guess(mscFilePath)
+        if mscFileType is None:
+            logging.error(f"歌曲文件格式识别失败！{mscFilePath}")
+            return None;
+    
+        mscFileExtension = mscFileType.extension
+
+        if mscFileExtension == 'mp3':
+            # 是mp3格式：
+            mscFile = eyed3.load(mscFilePath)
+            mscFile.tag.album = info[3]
+            mscFile.tag.artist = info[2]
+            mscFile.tag.title = info[1]
+            mscFile.tag.user_text_frames.set("netease_url", musicId)
+            mscFile.tag.save(encoding="utf8", version=(2, 3, 0))
+        elif mscFileExtension == 'm4a' or mscFileExtension == 'mp4' :
+            m4aMscFile = MP4(mscFilePath)
+            m4aMscFile.tags['\xa9nam']=info[1]
+            m4aMscFile.tags['\xa9ART']=info[2]
+            m4aMscFile.tags['\xa9alb']=info[3]
+            m4aMscFile.tags['\xa9cmt']=f"netease_url:{musicId}"
+            m4aMscFile.save()
+            mscFileExtension = 'm4a'
+        else:
+            logging.error(f"歌曲文件格式:{mscFileExtension},无法添加元数据, 所以没有添加数据")
+
+
+        # 重命名后移动文件
+        mscFileDstPath = os.path.join(self.ready_msc_dir,
+                                              "%s - %s.%s" % (re.sub(r"[\/\\\:\*\?\"\<\>\|]", "", info[1]), musicId, mscFileExtension))
+        shutil.move(mscFilePath, mscFileDstPath)
+        logging.info(f"歌曲保存至指定目录成功{musicId},{mscFileDstPath}")
+        return mscFileDstPath
 
     def getMusic(self, musicId):
         logging.info("开始转存 %s 歌曲", musicId)
@@ -141,6 +194,7 @@ class Netease_music:
             return None;
         logging.info("歌曲 web 资料获取成功")
         # print(info)
+        print(mscFilePath)
         mscFile = eyed3.load(mscFilePath)
         mscFile.tag: Tag;
         mscFile.tag.images: ImagesAccessor
@@ -153,7 +207,7 @@ class Netease_music:
         # imageLoad = open(r"C:\Users\DogEgg\Pictures\Saved Pictures\back_cover.jpg", "rb").read() # 可以放多个图片，iTunes只识别第一张，foobar2000识别多个type的图片 所有的软件对歌手的头像都是联网下载的 不会看tag里面的图片集
         # mscFile.tag.images.set(ImageFrame.LEAD_ARTIST, imageLoad, "image/jpeg", u"artist")
         # mscFile.tag.images.set(ImageFrame.ARTIST, imageLoad, "image/jpeg", u"artist")
-        mscFile.tag.lyrics.set(info[4])
+        # mscFile.tag.lyrics.set(info[4])
         mscFile.tag.album = info[3]
         mscFile.tag.artist = info[2]
         mscFile.tag.title = info[1]
@@ -175,12 +229,14 @@ class Netease_music:
         # event_handler = LoggingEventHandler()
         observer.schedule(event_handler, self.src_dir, recursive=False)
         observer.start()
+        return observer
 
     class FileModifyHandler(FileSystemEventHandler):
         def __init__(self, context):
             super().__init__()
             self.lastModifyFile = None;
             self.context = context
+            logging.info('FileModifyHandler init done..')
 
         def on_modified(self, event: FileSystemEvent):
             if not os.path.basename(event.src_path).endswith("uc"):
@@ -192,7 +248,7 @@ class Netease_music:
                 # 此文件修改了两次 说明缓存好了
                 songId = self.context.getSongId(basename)
                 self.context.id_uc_mp[songId] = event.src_path
-                self.context.getMusic(songId)
+                self.context.getMusic_only_text(songId)
             self.lastModifyFile = event.src_path
 
 
@@ -207,13 +263,26 @@ if __name__ == '__main__':
     seleniumLogger.setLevel(logging.WARNING)
     logging = logging.getLogger("NeteaseDecrypt")
     daemon = MyChromeDaemon()
-    daemon.listen_ready.acquire()  # 等待 监听线程开始运行
+    # daemon.listen_ready.acquire()  # 等待 ichrome的监听线程开始运行  阻塞
     # daemon.browser.get("https://music.163.com/")
 
     # handler = Netease_music("E:/workspace/netease-cached-music/cache/", "E:/workspace/netease-cached-music/dst/")
     # handler = Netease_music("C:\\Users\\DogEgg\\AppData\\Local\\Netease\\CloudMusic\\Cache\\Cache",
     #                         "E:/workspace/netease-cached-music/dst/")
+    
+    # 子线程监视文件夹变动
     handler = Netease_music(srcDir, desDir)
-    handler.start_dir_watch()
+    ob_thread = handler.start_dir_watch()
+    
+    # 主线程等待 ctrl+c 信号退出
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        a = ob_thread.stop()
+        logging.info('key board interrupt.. exit..')
+    ob_thread.join()
+
+
     # handler.getMusic()
     # print(handler.getInfoFromWeb("65528"))

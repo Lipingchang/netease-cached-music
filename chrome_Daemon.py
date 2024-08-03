@@ -29,14 +29,14 @@ class MyChromeDaemon(object):
 
     def __init__(self):
         self.listen_ready = threading.Semaphore(0)
-        self.lyric_queue = queue.Queue()
-        self.save_next_req2file = queue.Queue()
-        self.init()
-        self.start_thread(); # 用一个线程去连接 chrome 实例
+        # self.lyric_queue = queue.Queue()  # 歌词队列 ichrome线程会把 监听到的数据包过滤 获得的歌词放入队列中
+        # self.save_next_req2file = queue.Queue() # 可能是需要把请求中的内容保存为文件，但是相关方法没有实现。
+        self.init()            # 启动 chrome实例
+        # self.start_thread(); # 启动一个线程中启动ichrome协程去连接  chrome实例
 
     def init(self):
         chrome_options=Options()
-        chrome_options.add_argument("--headless") #设置chrome浏览器无界面模式  无头模式会又命令行输出
+        # chrome_options.add_argument("--headless") #设置chrome浏览器无界面模式  无头模式会又命令行输出
         chrome_options.add_argument("log-level=3") # 防止打包后 无头模式的chrome输出console中的内容
         # chrome_options.add_argument(f"proxy-server={self.proxy_server_address}")
         chrome_options.binary_location = self.chrome_exe_path
@@ -57,6 +57,7 @@ class MyChromeDaemon(object):
     def start_thread(self):
         def body():
             self.daemon_coro = self.start_listen_req()
+
             asyncio.run(self.daemon_coro)
         t = threading.Thread(target=body, name="ichrome")
         self.daemon_thread = t
@@ -89,13 +90,19 @@ class MyChromeDaemon(object):
         #     pass
         return False
 
+    # 运行返回一个协程对象?
     async def start_listen_req(self):
         async with AsyncChrome() as chrome:
             async with chrome.connect_tab(0, auto_close=True) as tab:
                 self.tab = tab;
                 await tab.set_url(url=self.root_url, timeout_stop_loading=True, timeout=5)
-                self.listen_ready.release() # v操作早了 有可能会漏掉几个response
-                await tab.wait_response(self.wait_response_filter, lambda r: print('cb:'), timeout=float("inf"))  # 没有设置timeout 阻塞了 长时间不结束 会不会让缓存的request过多？
+                self.listen_ready.release() # v操作(release)早了 有可能会漏掉几个response， release后主线程就可以继续操作了
+                await tab.wait_response(
+                    self.wait_response_filter, 
+                    lambda r: print('cb:'), 
+                    timeout=float("inf")
+                )   # 阻塞 开始监听tab页面的所有response  
+                # 没有设置timeout 阻塞了 长时间不结束 会不会让缓存的request过多？
 
 
     def download_pic(self, src, dst_path):
