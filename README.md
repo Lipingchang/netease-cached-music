@@ -24,7 +24,9 @@
 > 或者打开 网银云音乐 软件，在软件的**设置**里面可以找到 缓存目录。
 
 
-*脚本*会监听文件夹变动，当*网易云客户端*一起开启后，*网易云客户端*缓存一个脚本就转存一个
+*脚本*会监听文件夹变动，当*网易云客户端*一起开启后，*网易云客户端*缓存一个脚本就转存一个。
+
+客户端每次缓存文件都会先创建一个空的uc文件，等到用户切歌（或者下载完毕后？），空文件会被修改，变成有内容的文件。所以使用watchdog监听文件的modify，而不是create。
 
 ### 运行selenium需要 另外下载：chrome和chromedriver
 [下载有h264支持的chromium](https://github.com/Hibbiki/chromium-win64)
@@ -51,8 +53,11 @@
   再运行 `decrypt.exe`
 ### 打包 / 开发
 `pyinstaller -F decrypt.py`
+
 `conda create -n py397 python=3.9.7`
+
 `conda activate py397`
+
 `pip install --no-index --find-links=.\wls -r .\requirements.txt`
 
 ## 展示

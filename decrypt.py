@@ -11,16 +11,16 @@ from eyed3.id3.frames import ImageFrame
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent, LoggingEventHandler
 from selenium.webdriver.remote.remote_connection import LOGGER as seleniumLogger
-import logging
+import logging,threading
 import filetype
 from mutagen.mp4 import MP4
 from configparser import ConfigParser
-
 from chrome_Daemon import MyChromeDaemon
+from loadinfo2db import MyDB, load_cache_file_info
 
 
 class Netease_music:
-    def __init__(self, src_dir='', des_dir=''):
+    def __init__(self, db, src_dir='', des_dir=''):
         ''' src_dir 保存着被网易云缓存的音乐文件（需要解密）
             des_dir 保存解密后的音乐文件 （带封面 歌词 歌手信息）
         '''
@@ -35,6 +35,7 @@ class Netease_music:
         self.ready_msc_list_file = os.path.join(self.ready_msc_dir,".list.txt")
         logging.info("Current src_dir: %s", src_dir)
         logging.info("Current des_dir: %s", des_dir)
+        self.db = db
 
         # 新建目标文件夹
         if not os.path.exists(des_dir):
@@ -131,11 +132,13 @@ class Netease_music:
             # self._getAllMusic(ids, file)
 
     # 只向音乐文件中添加 作者等信息 不添加图片节省存储空间
-    def getMusic_only_text(self, musicId):
-        logging.info("===================================")
+    def getMusic_only_text(self, musicId, cache_file_info, db):
+        logging.info("===================================only text")
         logging.info("开始转存 %s 歌曲", musicId)
         # 破解id对应文件名字的 文件 返回 结果文件路径
         mscFilePath = self.decrypt(musicId) # 把异或后的文件保存到msc文件夹中, 然后开始找tab信息
+        if mscFilePath is None:
+            return None;
         logging.info("歌曲 转换成功")
         try:
             info = self.getInfoFromWeb(musicId)
@@ -175,11 +178,36 @@ class Netease_music:
 
 
         # 重命名后移动文件
+        # 重命名的格式不能修改  数据库模块 会从文件中提取musicId
         mscFileDstPath = os.path.join(self.ready_msc_dir,
-                                              "%s - %s.%s" % (re.sub(r"[\/\\\:\*\?\"\<\>\|]", "", info[1]), musicId, mscFileExtension))
+                                      "%s - %s.%s" % (
+                                          re.sub(r"[\/\\\:\*\?\"\<\>\|]", "", info[1]), 
+                                          musicId, 
+                                          mscFileExtension
+                                        ))
         shutil.move(mscFilePath, mscFileDstPath)
         logging.info(f"歌曲保存至指定目录成功{musicId},{mscFileDstPath}")
+        
+        self.update_cache_info_into_db(cache_file_info, info,db)
+        logging.info(f"歌曲保存db成功")
+        logging.info("=end==================================only text")
+
         return mscFileDstPath
+    
+    def update_cache_info_into_db(self, cache_file_info, song_info, db):
+        [f_size,f_mtime,f_ctime,song_id, song_rate, fname] = cache_file_info
+        [imgUrl, titleStr, artistStr, albumStr] = song_info
+        cursor = db.cursor
+        cursor.execute("select file_size from CACHE_FILE_T where file_filename= ?", (fname,))
+        result = cursor.fetchall()
+        if len(result)!=0:
+            cursor.execute('delete from CACHE_FILE_T where file_filename=?', (fname,)) 
+        
+        cursor.execute('insert into CACHE_FILE_T '+\
+                        '(song_id,song_rate,file_size,file_createtime,file_modifytime,file_filename,title,album,artist,imgUrl) values (?,?,?,?,?,?,?,?,?,?)',
+                    (song_id, song_rate, f_size, f_ctime,f_mtime,fname,titleStr,albumStr,artistStr, imgUrl))
+        db.conn.commit()
+
 
     def getMusic(self, musicId):
         logging.info("开始转存 %s 歌曲", musicId)
@@ -236,20 +264,43 @@ class Netease_music:
             super().__init__()
             self.lastModifyFile = None;
             self.context = context
+            self.db = None
             logging.info('FileModifyHandler init done..')
 
+        # on_modified在一个单独的进程中运行, 和init进程 不是同一个
         def on_modified(self, event: FileSystemEvent):
-            if not os.path.basename(event.src_path).endswith("uc"):
-                # 只监视uc文件
+            if self.db is None:
+                self.db = MyDB(self.context.db.db_path)
+
+            fname = os.path.basename(event.src_path)
+            cursor = self.db.cursor
+            # 只监视uc文件
+            if not fname.endswith("uc"):
                 return;
-            if event.src_path == self.lastModifyFile:
-                basename = os.path.basename(event.src_path)
-                logging.info("Netease cache file: %s", basename)
-                # 此文件修改了两次 说明缓存好了
-                songId = self.context.getSongId(basename)
-                self.context.id_uc_mp[songId] = event.src_path
-                self.context.getMusic_only_text(songId)
-            self.lastModifyFile = event.src_path
+            # 获取文件基本信息
+            f_info = load_cache_file_info(event.src_path)
+            [f_size,f_mtime,f_ctime,song_id, song_rate] = f_info
+            f_info.append(fname)
+
+            # 查询数据库 这个文件名 对应的历史文件
+            cursor.execute("select file_size from CACHE_FILE_T where file_filename= ?", (fname,))
+            result = cursor.fetchall()
+            logging.info(f"db查询缓存文件名:{fname},结果个数:{len(result)}")
+            if f_size==0: # 文件空：不操作
+                logging.info(f'\tcache文件{fname}为空, 不操作')
+                return
+            # 查到历史信息 且历史文件较大：不操作
+            if len(result) != 0:
+                older_file_size = result[0][0]
+                logging.info(f"\t该文件数据库中存在{fname},文件大小:{older_file_size},当前大小:{f_size}")
+                if int(older_file_size) >= int(f_size):
+                    return;
+                
+            # (当前文件更大) 或者 (数据库中没有且文件有大小) 就重新转码
+            basename = os.path.basename(event.src_path)
+            songId = self.context.getSongId(basename)
+            self.context.id_uc_mp[songId] = event.src_path
+            self.context.getMusic_only_text(songId, f_info, self.db)
 
 
 if __name__ == '__main__':
@@ -257,12 +308,16 @@ if __name__ == '__main__':
     config.read('./decrypt.config')
     srcDir = config["global"]["srcDir"]
     desDir = config["global"]["desDir"]
+    db_filename = config["global"]["dbFilename"]
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s - %(message)s',
                         datefmt='%H:%M:%S')
     seleniumLogger.setLevel(logging.WARNING)
     logging = logging.getLogger("NeteaseDecrypt")
-    daemon = MyChromeDaemon()
+    db_path = os.path.join(desDir, db_filename)
+    db = MyDB(db_path)
+
+    daemon = MyChromeDaemon()    
     # daemon.listen_ready.acquire()  # 等待 ichrome的监听线程开始运行  阻塞
     # daemon.browser.get("https://music.163.com/")
 
@@ -271,7 +326,7 @@ if __name__ == '__main__':
     #                         "E:/workspace/netease-cached-music/dst/")
     
     # 子线程监视文件夹变动
-    handler = Netease_music(srcDir, desDir)
+    handler = Netease_music(db, srcDir, desDir)
     ob_thread = handler.start_dir_watch()
     
     # 主线程等待 ctrl+c 信号退出

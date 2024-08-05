@@ -36,7 +36,7 @@ class MyChromeDaemon(object):
 
     def init(self):
         chrome_options=Options()
-        # chrome_options.add_argument("--headless") #设置chrome浏览器无界面模式  无头模式会又命令行输出
+        chrome_options.add_argument("--headless") #设置chrome浏览器无界面模式  无头模式会又命令行输出
         chrome_options.add_argument("log-level=3") # 防止打包后 无头模式的chrome输出console中的内容
         # chrome_options.add_argument(f"proxy-server={self.proxy_server_address}")
         chrome_options.binary_location = self.chrome_exe_path
